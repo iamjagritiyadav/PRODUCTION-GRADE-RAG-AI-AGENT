@@ -7,7 +7,7 @@ import uuid
 import os
 import datetime
 from google import genai 
-from google.genai import types # Added for configuration
+from google.genai import types 
 from data_loader import load_and_chunk_pdf, embed_texts
 from custom_types import RAQQueryResult, RAGChunkAndSrc, RAGUpsertResult, RAGSearchResult
 from vector_db import QdrantStorage
@@ -26,6 +26,7 @@ inngest_client = inngest.Inngest(
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
     trigger=inngest.TriggerEvent(event="rag/ingest_pdf"),
+   
     throttle=inngest.Throttle(
         limit=2, 
         period=datetime.timedelta(minutes=1)
@@ -63,9 +64,9 @@ async def rag_ingest_pdf(ctx: inngest.Context):
 )
 async def rag_query_pdf_ai(ctx: inngest.Context):
     def _search(question: str, top_k: int = 5) -> RAGSearchResult:
-        # Fixed: Using the correct model and 768 dimensions for query
+       
         res = client.models.embed_content(
-            model="gemini-embedding-001",
+            model="text-embedding-004", 
             contents=[question],
             config=types.EmbedContentConfig(
                 task_type="RETRIEVAL_QUERY",
@@ -94,10 +95,10 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
         response = client.models.generate_content(
             model="gemini-2.0-flash", 
             contents=prompt,
-            config={
-                "temperature": 0.2,
-                "max_output_tokens": 1024,
-            }
+            config=types.GenerateContentConfig( # Proper config type
+                temperature=0.2,
+                max_output_tokens=1024,
+            )
         )
         return response.text
 
