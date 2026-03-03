@@ -11,65 +11,72 @@ load_dotenv()
 
 st.set_page_config(
     page_title="Smart Context Engine",
-    page_icon="🧠",
     layout="centered"
 )
 
-# ---------------------------
-# Custom Styling
-# ---------------------------
+# -------------------------
+# Minimal Professional Styling
+# -------------------------
 st.markdown("""
 <style>
-.main {
-    padding-top: 1rem;
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-.block-container {
-    padding-top: 2rem;
+
+.main-container {
+    max-width: 800px;
+    margin: auto;
+    padding-top: 40px;
 }
-h1 {
-    font-size: 2.5rem !important;
-}
-.stButton>button {
-    width: 100%;
-    border-radius: 8px;
-    height: 3em;
+
+.header-title {
+    font-size: 32px;
     font-weight: 600;
+    margin-bottom: 6px;
 }
-.card {
-    padding: 1.5rem;
-    border-radius: 12px;
-    background-color: #111827;
-    border: 1px solid #1f2937;
-    margin-bottom: 1.5rem;
+
+.header-subtitle {
+    font-size: 15px;
+    color: #6b7280;
+    margin-bottom: 40px;
 }
+
+.section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    margin-top: 40px;
+}
+
 .answer-box {
-    padding: 1.2rem;
-    border-radius: 10px;
-    background-color: #0f172a;
-    border: 1px solid #334155;
+    border-left: 3px solid #111827;
+    padding-left: 16px;
+    margin-top: 20px;
+    font-size: 16px;
+    line-height: 1.6;
 }
-.source-box {
-    font-size: 0.9rem;
-    color: #94a3b8;
+
+.source-text {
+    font-size: 13px;
+    color: #6b7280;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------
+st.markdown('<div class="main-container">', unsafe_allow_html=True)
+
+# -------------------------
 # Header
-# ---------------------------
-st.markdown("""
-<h1 style='text-align:center;'>🧠 Smart Context Engine</h1>
-<p style='text-align:center; color:#94a3b8;'>
-A grounded RAG system that answers strictly from your uploaded documents.
-</p>
-""", unsafe_allow_html=True)
+# -------------------------
+st.markdown('<div class="header-title">Smart Context Engine</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="header-subtitle">A retrieval-augmented system that answers strictly from your uploaded documents.</div>',
+    unsafe_allow_html=True
+)
 
-st.divider()
-
-# ---------------------------
+# -------------------------
 # Inngest Client
-# ---------------------------
+# -------------------------
 @st.cache_resource
 def get_inngest_client() -> inngest.Inngest:
     return inngest.Inngest(app_id="rag_app", is_production=False)
@@ -93,30 +100,26 @@ async def send_rag_ingest_event(pdf_path: Path) -> None:
         )
     )
 
-# ---------------------------
-# Ingest Section
-# ---------------------------
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("📄 Document Ingestion")
+# -------------------------
+# Document Ingestion
+# -------------------------
+st.markdown('<div class="section-title">Document Ingestion</div>', unsafe_allow_html=True)
 
-uploaded = st.file_uploader("Upload a PDF to index", type=["pdf"])
+uploaded = st.file_uploader("Upload a PDF", type=["pdf"])
 
 if uploaded:
-    with st.spinner("Indexing document into vector memory..."):
+    with st.spinner("Indexing document..."):
         path = save_uploaded_pdf(uploaded)
         asyncio.run(send_rag_ingest_event(path))
         time.sleep(0.3)
-    st.success(f"Document indexed: {path.name}")
+    st.success(f"Indexed: {path.name}")
 
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ---------------------------
+# -------------------------
 # Query Section
-# ---------------------------
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("🔎 Ask From Your Context")
+# -------------------------
+st.markdown('<div class="section-title">Ask a Question</div>', unsafe_allow_html=True)
 
-async def send_rag_query_event(question: str, top_k: int) -> None:
+async def send_rag_query_event(question: str, top_k: int):
     client = get_inngest_client()
     result = await client.send(
         inngest.Event(
@@ -132,7 +135,7 @@ async def send_rag_query_event(question: str, top_k: int) -> None:
 def _inngest_api_base() -> str:
     return os.getenv("INNGEST_API_BASE", "http://127.0.0.1:8288/v1")
 
-def fetch_runs(event_id: str) -> list[dict]:
+def fetch_runs(event_id: str):
     url = f"{_inngest_api_base()}/events/{event_id}/runs"
     resp = requests.get(url)
     resp.raise_for_status()
@@ -152,32 +155,23 @@ def wait_for_run_output(event_id: str, timeout_s=120, poll_interval_s=0.5):
 
 with st.form("query_form"):
     question = st.text_input("Enter your question")
-    top_k = st.slider("Context depth (retrieved chunks)", 1, 20, 5)
-    submitted = st.form_submit_button("Generate Answer")
+    top_k = st.slider("Context depth", 1, 20, 5)
+    submitted = st.form_submit_button("Generate")
 
 if submitted and question.strip():
-    with st.spinner("Retrieving relevant context and generating grounded response..."):
+    with st.spinner("Retrieving context and generating response..."):
         event_id = asyncio.run(send_rag_query_event(question.strip(), top_k))
         output = wait_for_run_output(event_id)
         answer = output.get("answer", "")
         sources = output.get("sources", [])
 
     st.markdown('<div class="answer-box">', unsafe_allow_html=True)
-    st.markdown("### 🧾 Grounded Answer")
-    st.write(answer if answer else "No answer returned.")
+    st.markdown(answer if answer else "No answer returned.")
     st.markdown('</div>', unsafe_allow_html=True)
 
     if sources:
-        st.markdown("#### 📌 Source References")
+        st.markdown('<div class="section-title">Sources</div>', unsafe_allow_html=True)
         for s in sources:
-            st.markdown(f"<div class='source-box'>• {s}</div>", unsafe_allow_html=True)
+            st.markdown(f'<div class="source-text">{s}</div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)
-
-# ---------------------------
-# Trust Footer
-# ---------------------------
-st.divider()
-st.caption("✔ Responses are generated strictly from indexed documents.")
-st.caption("✔ No external internet knowledge used.")
-st.caption("✔ Retrieval-augmented, context-grounded reasoning.")
