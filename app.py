@@ -9,135 +9,175 @@ import requests
 
 load_dotenv()
 
-# Page Setup
 st.set_page_config(
-    page_title="Pulse RAG",
-    page_icon="⚡",
-    layout="wide"
+    page_title="Smart Context Engine",
+    page_icon="🧠",
+    layout="centered"
 )
 
-# Gemini-Inspired Custom CSS
+# ---------------------------
+# Custom Styling
+# ---------------------------
 st.markdown("""
-    <style>
-    /* Dark Theme background */
-    .stApp {
-        background-color: #131314;
-    }
-    
-    /* Gradient Text for Pulse RAG */
-    .gemini-title {
-        background: linear_gradient(to right, #4285f4, #9b72cb, #d96570);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-size: 3.5rem;
-        font-weight: 600;
-        font-family: 'Google Sans', sans-serif;
-    }
+<style>
+.main {
+    padding-top: 1rem;
+}
+.block-container {
+    padding-top: 2rem;
+}
+h1 {
+    font-size: 2.5rem !important;
+}
+.stButton>button {
+    width: 100%;
+    border-radius: 8px;
+    height: 3em;
+    font-weight: 600;
+}
+.card {
+    padding: 1.5rem;
+    border-radius: 12px;
+    background-color: #111827;
+    border: 1px solid #1f2937;
+    margin-bottom: 1.5rem;
+}
+.answer-box {
+    padding: 1.2rem;
+    border-radius: 10px;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+}
+.source-box {
+    font-size: 0.9rem;
+    color: #94a3b8;
+}
+</style>
+""", unsafe_allow_html=True)
 
-    /* Chat containers */
-    .stChatMessage {
-        background-color: #1e1f20 !important;
-        border-radius: 20px !important;
-        padding: 15px !important;
-        margin-bottom: 10px !important;
-    }
+# ---------------------------
+# Header
+# ---------------------------
+st.markdown("""
+<h1 style='text-align:center;'>🧠 Smart Context Engine</h1>
+<p style='text-align:center; color:#94a3b8;'>
+A grounded RAG system that answers strictly from your uploaded documents.
+</p>
+""", unsafe_allow_html=True)
 
-    /* Input Box styling */
-    .stChatInputContainer {
-        padding-bottom: 2rem;
-    }
+st.divider()
 
-    /* Sidebar Styling */
-    section[data-testid="stSidebar"] {
-        background-color: #1e1f20;
-        border-right: 1px solid #333;
-    }
-    
-    .status-active {
-        color: #00e676;
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# ---------------------------
+# Inngest Client
+# ---------------------------
+@st.cache_resource
+def get_inngest_client() -> inngest.Inngest:
+    return inngest.Inngest(app_id="rag_app", is_production=False)
 
-# App Branding
-st.markdown('<h1 class="gemini-title">⚡ Pulse RAG</h1>', unsafe_allow_html=True)
-st.markdown("<p style='color: #8e918f; font-size: 1.2rem; margin-top: -15px;'>Your event-driven intelligence agent</p>", unsafe_allow_html=True)
+def save_uploaded_pdf(file) -> Path:
+    uploads_dir = Path("uploads")
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    file_path = uploads_dir / file.name
+    file_path.write_bytes(file.getbuffer())
+    return file_path
 
-# Sidebar
-with st.sidebar:
-    st.image("https://www.gstatic.com/lamda/images/gemini_wordmark_light_6021c7d777e45.svg", width=150)
-    st.divider()
-    
-    st.subheader("📚 Knowledge Base")
-    uploaded = st.file_uploader("Upload document (PDF)", type=["pdf"])
-    
-    if uploaded and st.button("Index to Pulse"):
-        with st.status("Absorbing knowledge...", expanded=False):
-            # Same logic as before
-            uploads_dir = Path("uploads")
-            uploads_dir.mkdir(parents=True, exist_ok=True)
-            file_path = uploads_dir / uploaded.name
-            file_path.write_bytes(uploaded.getbuffer())
-            
-            # Send Inngest event
-            client = inngest.Inngest(app_id="pulse_rag", is_production=False)
-            asyncio.run(client.send(inngest.Event(
-                name="pulse/ingest_pdf",
-                data={"pdf_path": str(file_path.resolve()), "source_id": uploaded.name}
-            )))
-            st.success(f"'{uploaded.name}' Pulse mein add ho gaya!")
+async def send_rag_ingest_event(pdf_path: Path) -> None:
+    client = get_inngest_client()
+    await client.send(
+        inngest.Event(
+            name="rag/ingest_pdf",
+            data={
+                "pdf_path": str(pdf_path.resolve()),
+                "source_id": pdf_path.name,
+            },
+        )
+    )
 
-    st.divider()
-    st.markdown("System Status: <span class='status-active'>Pulse Live</span>", unsafe_allow_html=True)
+# ---------------------------
+# Ingest Section
+# ---------------------------
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.subheader("📄 Document Ingestion")
 
-# Inngest Polling Helper
-def wait_for_pulse_output(event_id: str):
-    url = f"http://127.0.0.1:8288/api/events/{event_id}/runs"
-    start_time = time.time()
-    while time.time() - start_time < 60:
-        try:
-            r = requests.get(url, timeout=2).json()
-            if r and r[0]['status'] in ("Completed", "Succeeded"):
-                return r[0].get("output")
-        except: pass
-        time.sleep(1)
-    return None
+uploaded = st.file_uploader("Upload a PDF to index", type=["pdf"])
 
-# Initialize Chat History
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if uploaded:
+    with st.spinner("Indexing document into vector memory..."):
+        path = save_uploaded_pdf(uploaded)
+        asyncio.run(send_rag_ingest_event(path))
+        time.sleep(0.3)
+    st.success(f"Document indexed: {path.name}")
 
-# Display Chat History
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+st.markdown('</div>', unsafe_allow_html=True)
 
-# Chat Input (Gemini style)
-if prompt := st.chat_input("Ask Pulse anything..."):
-    # Display user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# ---------------------------
+# Query Section
+# ---------------------------
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.subheader("🔎 Ask From Your Context")
 
-    # Trigger AI Pulse
-    with st.chat_message("assistant"):
-        with st.spinner("Pulse is thinking..."):
-            client = inngest.Inngest(app_id="pulse_rag", is_production=False)
-            event_id = asyncio.run(client.send(inngest.Event(
-                name="pulse/query",
-                data={"question": prompt, "top_k": 5}
-            )))
-            
-            output = wait_for_pulse_output(event_id[0])
-            
-            if output:
-                response = output.get("answer", "Maaf kijiye, main iska jawab nahi dhoond paya.")
-                st.markdown(response)
-                
-                if output.get("sources"):
-                    st.caption(f"Sources: {', '.join(output['sources'])}")
-                
-                st.session_state.messages.append({"role": "assistant", "content": response})
-            else:
-                st.error("Backend response nahi mila. Inngest dev server check karein.")
+async def send_rag_query_event(question: str, top_k: int) -> None:
+    client = get_inngest_client()
+    result = await client.send(
+        inngest.Event(
+            name="rag/query_pdf_ai",
+            data={
+                "question": question,
+                "top_k": top_k,
+            },
+        )
+    )
+    return result[0]
+
+def _inngest_api_base() -> str:
+    return os.getenv("INNGEST_API_BASE", "http://127.0.0.1:8288/v1")
+
+def fetch_runs(event_id: str) -> list[dict]:
+    url = f"{_inngest_api_base()}/events/{event_id}/runs"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return resp.json().get("data", [])
+
+def wait_for_run_output(event_id: str, timeout_s=120, poll_interval_s=0.5):
+    start = time.time()
+    while True:
+        runs = fetch_runs(event_id)
+        if runs:
+            run = runs[0]
+            if run.get("status") in ("Completed", "Succeeded", "Success", "Finished"):
+                return run.get("output") or {}
+        if time.time() - start > timeout_s:
+            raise TimeoutError("Timed out waiting for response.")
+        time.sleep(poll_interval_s)
+
+with st.form("query_form"):
+    question = st.text_input("Enter your question")
+    top_k = st.slider("Context depth (retrieved chunks)", 1, 20, 5)
+    submitted = st.form_submit_button("Generate Answer")
+
+if submitted and question.strip():
+    with st.spinner("Retrieving relevant context and generating grounded response..."):
+        event_id = asyncio.run(send_rag_query_event(question.strip(), top_k))
+        output = wait_for_run_output(event_id)
+        answer = output.get("answer", "")
+        sources = output.get("sources", [])
+
+    st.markdown('<div class="answer-box">', unsafe_allow_html=True)
+    st.markdown("### 🧾 Grounded Answer")
+    st.write(answer if answer else "No answer returned.")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    if sources:
+        st.markdown("#### 📌 Source References")
+        for s in sources:
+            st.markdown(f"<div class='source-box'>• {s}</div>", unsafe_allow_html=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ---------------------------
+# Trust Footer
+# ---------------------------
+st.divider()
+st.caption("✔ Responses are generated strictly from indexed documents.")
+st.caption("✔ No external internet knowledge used.")
+st.caption("✔ Retrieval-augmented, context-grounded reasoning.")
