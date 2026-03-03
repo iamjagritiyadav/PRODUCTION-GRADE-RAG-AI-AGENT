@@ -7,149 +7,137 @@ from dotenv import load_dotenv
 import os
 import requests
 
-# Load Environment
 load_dotenv()
 
-# Page Config
+# Page Setup
 st.set_page_config(
-    page_title="Pulse RAG | Intelligent Document Insights", 
-    page_icon="⚡", 
+    page_title="Pulse RAG",
+    page_icon="⚡",
     layout="wide"
 )
 
-# Custom CSS for Professional Branding
+# Gemini-Inspired Custom CSS
 st.markdown("""
     <style>
-    .main {
-        background-color: #0e1117;
+    /* Dark Theme background */
+    .stApp {
+        background-color: #131314;
     }
-    .stButton>button {
-        width: 100%;
-        border-radius: 5px;
-        height: 3em;
-        background-color: #ff4b4b;
-        color: white;
+    
+    /* Gradient Text for Pulse RAG */
+    .gemini-title {
+        background: linear_gradient(to right, #4285f4, #9b72cb, #d96570);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 3.5rem;
+        font-weight: 600;
+        font-family: 'Google Sans', sans-serif;
     }
-    .pulse-header {
-        font-size: 3rem;
-        font-weight: 800;
-        color: #ff4b4b;
-        margin-bottom: 0;
+
+    /* Chat containers */
+    .stChatMessage {
+        background-color: #1e1f20 !important;
+        border-radius: 20px !important;
+        padding: 15px !important;
+        margin-bottom: 10px !important;
     }
-    .pulse-subtitle {
-        font-size: 1.2rem;
-        color: #808495;
-        margin-bottom: 2rem;
+
+    /* Input Box styling */
+    .stChatInputContainer {
+        padding-bottom: 2rem;
     }
-    .sidebar-text {
-        font-size: 0.9rem;
-        color: #a3a8b4;
+
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: #1e1f20;
+        border-right: 1px solid #333;
+    }
+    
+    .status-active {
+        color: #00e676;
+        font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# Branding Header
-st.markdown('<p class="pulse-header">⚡ Pulse RAG</p>', unsafe_allow_html=True)
-st.markdown('<p class="pulse-subtitle">Event-driven Document Intelligence Agent</p>', unsafe_allow_html=True)
+# App Branding
+st.markdown('<h1 class="gemini-title">⚡ Pulse RAG</h1>', unsafe_allow_html=True)
+st.markdown("<p style='color: #8e918f; font-size: 1.2rem; margin-top: -15px;'>Your event-driven intelligence agent</p>", unsafe_allow_html=True)
 
-# Sidebar for Ingestion
+# Sidebar
 with st.sidebar:
-    st.header("📥 Data Ingestion")
-    st.markdown("Upload documents to the **Pulse** engine to begin indexing.")
-    uploaded = st.file_uploader("Choose a PDF", type=["pdf"], accept_multiple_files=False)
-    
+    st.image("https://www.gstatic.com/lamda/images/gemini_wordmark_light_6021c7d777e45.svg", width=150)
     st.divider()
-    st.markdown('<p class="sidebar-text">Status: 🟢 System Active</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sidebar-text">Powered by Gemini & Inngest</p>', unsafe_allow_html=True)
+    
+    st.subheader("📚 Knowledge Base")
+    uploaded = st.file_uploader("Upload document (PDF)", type=["pdf"])
+    
+    if uploaded and st.button("Index to Pulse"):
+        with st.status("Absorbing knowledge...", expanded=False):
+            # Same logic as before
+            uploads_dir = Path("uploads")
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            file_path = uploads_dir / uploaded.name
+            file_path.write_bytes(uploaded.getbuffer())
+            
+            # Send Inngest event
+            client = inngest.Inngest(app_id="pulse_rag", is_production=False)
+            asyncio.run(client.send(inngest.Event(
+                name="pulse/ingest_pdf",
+                data={"pdf_path": str(file_path.resolve()), "source_id": uploaded.name}
+            )))
+            st.success(f"'{uploaded.name}' Pulse mein add ho gaya!")
 
-@st.cache_resource
-def get_inngest_client() -> inngest.Inngest:
-    return inngest.Inngest(app_id="pulse_rag", is_production=False)
+    st.divider()
+    st.markdown("System Status: <span class='status-active'>Pulse Live</span>", unsafe_allow_html=True)
 
-def save_uploaded_pdf(file) -> Path:
-    uploads_dir = Path("uploads")
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-    file_path = uploads_dir / file.name
-    file_path.write_bytes(file.getbuffer())
-    return file_path
-
-async def send_pulse_ingest_event(pdf_path: Path) -> None:
-    client = get_inngest_client()
-    await client.send(
-        inngest.Event(
-            name="pulse/ingest_pdf", # Consistent with naya naming
-            data={
-                "pdf_path": str(pdf_path.resolve()),
-                "source_id": pdf_path.name,
-            },
-        )
-    )
-
-def fetch_runs(event_id: str):
-    # Local Inngest Dev Server API
+# Inngest Polling Helper
+def wait_for_pulse_output(event_id: str):
     url = f"http://127.0.0.1:8288/api/events/{event_id}/runs"
-    try:
-        r = requests.get(url, timeout=2)
-        return r.json() if r.status_code == 200 else []
-    except:
-        return []
-
-def wait_for_pulse_output(event_id: str, timeout_s=60):
-    start = time.time()
-    while time.time() - start < timeout_s:
-        runs = fetch_runs(event_id)
-        if runs:
-            run = runs[0]
-            status = run.get("status")
-            if status in ("Completed", "Succeeded", "Success"):
-                return run.get("output") or {}
-            if status in ("Failed", "Cancelled"):
-                st.error(f"Function run failed with status: {status}")
-                return {}
+    start_time = time.time()
+    while time.time() - start_time < 60:
+        try:
+            r = requests.get(url, timeout=2).json()
+            if r and r[0]['status'] in ("Completed", "Succeeded"):
+                return r[0].get("output")
+        except: pass
         time.sleep(1)
-    st.warning("Request timed out. The backend is still processing.")
-    return {}
+    return None
 
-# Main UI Area
-col1, col2 = st.columns([2, 1])
+# Initialize Chat History
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-with col1:
-    if uploaded is not None:
-        if st.sidebar.button("🚀 Trigger Pulse Ingest"):
-            with st.status("Indexing document...", expanded=True) as status:
-                path = save_uploaded_pdf(uploaded)
-                asyncio.run(send_pulse_ingest_event(path))
-                status.update(label="Ingestion event fired! Check Inngest Dev Server.", state="complete")
-                st.sidebar.success(f"File '{uploaded.name}' scheduled!")
+# Display Chat History
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-    st.subheader("🔍 Ask the Pulse")
-    with st.form("pulse_query_form"):
-        question = st.text_input("Enter your query about the uploaded knowledge base", placeholder="e.g., What is the revenue mentioned in the report?")
-        top_k = st.slider("Depth of context (top_k)", 1, 10, 5)
-        submitted = st.form_submit_button("Query Engine")
+# Chat Input (Gemini style)
+if prompt := st.chat_input("Ask Pulse anything..."):
+    # Display user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        if submitted and question.strip():
-            with st.spinner("Pulse engine searching and generating..."):
-                # Note: Aapko main.py mein bhi event name 'pulse/query' update karna hoga
-                client = get_inngest_client()
-                event_id = asyncio.run(client.send(inngest.Event(
-                    name="pulse/query",
-                    data={"question": question.strip(), "top_k": int(top_k)}
-                )))
+    # Trigger AI Pulse
+    with st.chat_message("assistant"):
+        with st.spinner("Pulse is thinking..."):
+            client = inngest.Inngest(app_id="pulse_rag", is_production=False)
+            event_id = asyncio.run(client.send(inngest.Event(
+                name="pulse/query",
+                data={"question": prompt, "top_k": 5}
+            )))
+            
+            output = wait_for_pulse_output(event_id[0])
+            
+            if output:
+                response = output.get("answer", "Maaf kijiye, main iska jawab nahi dhoond paya.")
+                st.markdown(response)
                 
-                output = wait_for_pulse_output(event_id[0])
+                if output.get("sources"):
+                    st.caption(f"Sources: {', '.join(output['sources'])}")
                 
-                if output:
-                    st.markdown("### 💡 Answer")
-                    st.write(output.get("answer", "No response generated."))
-                    
-                    if output.get("sources"):
-                        with st.expander("📚 Sources & References"):
-                            for src in output["sources"]:
-                                st.info(f"Source: {src}")
-
-with col2:
-    st.subheader("📊 System Health")
-    st.metric(label="Backend Engine", value="FastAPI")
-    st.metric(label="Workflow Engine", value="Inngest")
-    st.metric(label="Vector DB", value="Qdrant")
+                st.session_state.messages.append({"role": "assistant", "content": response})
+            else:
+                st.error("Backend response nahi mila. Inngest dev server check karein.")
