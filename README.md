@@ -9,8 +9,6 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-ff4b4b)
 ![LlamaIndex](https://img.shields.io/badge/LlamaIndex-RAG-yellow)
 
-Live App: [https://ai-rag-agent.streamlit.app/](https://ai-rag-agent.streamlit.app/)
-
 A production-grade Retrieval-Augmented Generation (RAG) system for document-grounded intelligence.
 
 It separates ingestion from querying using an event-driven workflow, ensuring scalability, reliability, and strict context isolation.
